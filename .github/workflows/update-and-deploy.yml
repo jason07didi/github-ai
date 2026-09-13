@@ -1,15 +1,15 @@
 name: Update AI Radar and deploy Pages
 
 on:
-  # 允许在 Actions 页面手动运行
+  # 可以在 Actions 页面手动运行
   workflow_dispatch:
 
-  # 每小时第 7 分和 37 分自动运行
-  # 即大约每 30 分钟更新一次
+  # 每小时第 7 分、37 分运行
+  # 约每 30 分钟更新一次
   schedule:
     - cron: "7,37 * * * *"
 
-  # 人工修改代码后自动运行
+  # 人工修改程序后自动运行
   push:
     branches:
       - main
@@ -22,7 +22,7 @@ permissions:
   pages: write
   id-token: write
 
-# 避免多个 Pages 部署同时进行
+# 同一时间只允许一个更新任务运行
 concurrency:
   group: github-ai-pages
   cancel-in-progress: false
@@ -38,7 +38,7 @@ jobs:
     steps:
 
       # ============================================================
-      # 1. 获取仓库代码
+      # 1. 下载仓库
       # ============================================================
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -46,7 +46,7 @@ jobs:
           fetch-depth: 0
 
       # ============================================================
-      # 2. 配置 Python
+      # 2. Python 环境
       # ============================================================
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -55,8 +55,7 @@ jobs:
           cache: "pip"
 
       # ============================================================
-      # 3. 缓存 Hugging Face 翻译模型
-      #    避免每次重新下载
+      # 3. 缓存中文翻译模型
       # ============================================================
       - name: Cache translation model
         uses: actions/cache@v4
@@ -67,7 +66,7 @@ jobs:
             hf-opus-mt-en-zh-
 
       # ============================================================
-      # 4. 安装 Python 依赖
+      # 4. 安装依赖
       # ============================================================
       - name: Install dependencies
         run: |
@@ -75,11 +74,14 @@ jobs:
           pip install -r requirements.txt
 
       # ============================================================
-      # 5. 抓取 GitHub AI 项目
-      #    + 分类
-      #    + 中文翻译
-      #    + Star 数据
-      #    + README 核心图片
+      # 5. 更新 AI 项目
+      #
+      # 包括：
+      # GitHub 搜索
+      # 中文翻译
+      # 用户友好分类
+      # Star 历史
+      # 项目封面图
       # ============================================================
       - name: Update GitHub projects
         env:
@@ -90,24 +92,56 @@ jobs:
           python scripts/update.py
 
       # ============================================================
-      # 6. 检查 Python 文件有没有语法错误
+      # 6. Python 语法检查
       # ============================================================
       - name: Validate Python
         run: |
           python -m compileall -q scripts
 
       # ============================================================
-      # 7. 把新生成的数据提交回仓库
+      # 7. 保存本次生成的数据
       #
-      #    这里特别处理：
-      #    如果 Action 运行期间你人工修改了仓库，
-      #    会先 pull --rebase，再 push，
-      #    避免 fetch first / non-fast-forward 错误。
+      # 非常重要：
+      # data/*.json 都是程序自动生成的数据，
+      # 不进行 git merge / rebase。
+      #
+      # 先把本次结果保存到临时目录。
+      # ============================================================
+      - name: Preserve generated data
+        run: |
+          rm -rf /tmp/github-ai-data
+          mkdir -p /tmp/github-ai-data
+
+          cp -a data/. /tmp/github-ai-data/
+
+          echo "Generated data preserved."
+          ls -lah /tmp/github-ai-data
+
+      # ============================================================
+      # 8. 同步最新 main，再覆盖自动生成的数据
+      #
+      # 这样即使 Action 运行期间，
+      # 你修改了 index.html / Python / workflow，
+      # 也不会再发生 JSON merge conflict。
       # ============================================================
       - name: Commit refreshed data
+        shell: bash
         run: |
+          set -euo pipefail
+
           git config user.name "ai-tools-radar-bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          echo "Fetching latest main..."
+          git fetch origin main
+
+          echo "Resetting workspace to latest remote main..."
+          git reset --hard origin/main
+
+          echo "Restoring newly generated data..."
+          rm -rf data
+          mkdir -p data
+          cp -a /tmp/github-ai-data/. data/
 
           git add data/
 
@@ -116,33 +150,32 @@ jobs:
           else
             git commit -m "chore: refresh AI tools data"
 
-            echo "Syncing latest remote main branch..."
+            echo "Pushing refreshed data..."
 
-            # 最多尝试 3 次，进一步避免运行过程中远端再次变化
-            for attempt in 1 2 3
-            do
-              echo "Push attempt ${attempt}"
+            if ! git push origin HEAD:main; then
+
+              echo "Remote changed while pushing."
+              echo "Refreshing remote branch and retrying once..."
 
               git fetch origin main
-              git rebase origin/main
+              git reset --hard origin/main
 
-              if git push origin HEAD:main; then
-                echo "Data pushed successfully."
-                break
+              rm -rf data
+              mkdir -p data
+              cp -a /tmp/github-ai-data/. data/
+
+              git add data/
+
+              if ! git diff --cached --quiet; then
+                git commit -m "chore: refresh AI tools data"
               fi
 
-              if [ "$attempt" -eq 3 ]; then
-                echo "Failed to push after 3 attempts."
-                exit 1
-              fi
-
-              echo "Remote changed again. Retrying..."
-              sleep 5
-            done
+              git push origin HEAD:main
+            fi
           fi
 
       # ============================================================
-      # 8. 准备 GitHub Pages 静态网站
+      # 9. 准备网站文件
       # ============================================================
       - name: Prepare static site
         run: |
@@ -155,17 +188,18 @@ jobs:
           cp -R assets _site/
           cp -R data _site/
 
-          echo "Static site prepared:"
+          echo "Static site ready."
+
           find _site -maxdepth 2 -type f | sort | head -100
 
       # ============================================================
-      # 9. 配置 GitHub Pages
+      # 10. 配置 GitHub Pages
       # ============================================================
       - name: Configure Pages
         uses: actions/configure-pages@v5
 
       # ============================================================
-      # 10. 上传网页
+      # 11. 上传网站
       # ============================================================
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
@@ -173,7 +207,7 @@ jobs:
           path: "_site"
 
       # ============================================================
-      # 11. 发布 GitHub Pages
+      # 12. 发布网站
       # ============================================================
       - name: Deploy to GitHub Pages
         id: deployment
