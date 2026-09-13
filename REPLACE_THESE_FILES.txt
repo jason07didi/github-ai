@@ -1,0 +1,11 @@
+请把本压缩包中的以下文件按原路径覆盖到 github-ai 仓库：
+config.json
+index.html
+assets/app.js
+assets/style.css
+scripts/categorizer.py
+scripts/update.py
+scripts/covers.py
+scripts/github_api.py
+
+覆盖完成后运行 GitHub Actions：Update AI Radar and deploy Pages。
