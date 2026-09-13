@@ -1,0 +1,19 @@
+{
+  "site_title": "AI 开源雷达",
+  "site_subtitle": "自动发现 GitHub 上值得关注的 AI 开源工具，并提供中文简介",
+  "min_stars": 30,
+  "max_projects": 120,
+  "new_repo_days": 45,
+  "search_per_query": 30,
+  "queries": [
+    "artificial-intelligence in:name,description stars:>100",
+    "LLM in:name,description stars:>100",
+    "AI agent in:name,description stars:>50",
+    "RAG in:name,description stars:>50",
+    "MCP in:name,description stars:>20",
+    "AI coding in:name,description stars:>50",
+    "multimodal AI in:name,description stars:>50",
+    "AI research in:name,description stars:>30"
+  ],
+  "translation_model": "Helsinki-NLP/opus-mt-en-zh"
+}

@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="自动发现 GitHub 上值得关注的 AI 开源工具，并提供中文简介、热度和 Star 增长趋势。">
+  <title>AI 开源雷达</title>
+  <link rel="stylesheet" href="./assets/style.css">
+</head>
+<body>
+  <header class="hero">
+    <div class="wrap">
+      <div class="eyebrow">GitHub AI Tools Radar</div>
+      <h1>AI 开源雷达</h1>
+      <p class="subtitle">自动发现 GitHub 上值得关注的 AI 工具，提供中文简介、项目分类、热度评分与 Star 增长趋势。无需注册，数据由 GitHub Actions 定时更新。</p>
+      <div class="hero-stats">
+        <span>已收录 <strong id="projectCount">0</strong> 个项目</span>
+        <span>·</span>
+        <span>最近更新：<strong id="lastUpdated">等待首次更新</strong></span>
+      </div>
+    </div>
+  </header>
+
+  <div class="toolbar">
+    <div class="wrap controls">
+      <input id="search" type="search" placeholder="搜索项目、中文简介或 Topic…" aria-label="搜索">
+      <select id="category" aria-label="分类"><option>全部分类</option></select>
+      <select id="sort" aria-label="排序">
+        <option value="score">综合热度</option>
+        <option value="growth24">24 小时增长</option>
+        <option value="growth7">7 天增长</option>
+        <option value="stars">Star 总数</option>
+        <option value="updated">最近更新</option>
+        <option value="new">最新发现</option>
+      </select>
+    </div>
+  </div>
+
+  <main class="wrap">
+    <div class="section-head">
+      <h2>正在值得关注</h2>
+      <p>当前显示 <strong id="visibleCount">0</strong> 个项目</p>
+    </div>
+    <section id="grid" class="grid"><div class="empty">等待首次自动抓取 GitHub 数据…</div></section>
+  </main>
+
+  <footer>
+    <div class="wrap">数据来源于 GitHub 公开仓库。中文简介由本地开源翻译模型自动生成，可能存在翻译误差；项目版权与许可证归原作者所有。</div>
+  </footer>
+  <script src="./assets/app.js" defer></script>
+</body>
+</html>
