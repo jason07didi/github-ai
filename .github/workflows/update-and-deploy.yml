@@ -1,13 +1,18 @@
 name: Update AI Radar and deploy Pages
 
 on:
+  # 允许在 Actions 页面手动运行
   workflow_dispatch:
 
+  # 每小时第 7 分和 37 分自动运行
+  # 即大约每 30 分钟更新一次
   schedule:
     - cron: "7,37 * * * *"
 
+  # 人工修改代码后自动运行
   push:
-    branches: [main]
+    branches:
+      - main
     paths-ignore:
       - "README.md"
       - "LICENSE"
@@ -17,8 +22,9 @@ permissions:
   pages: write
   id-token: write
 
+# 避免多个 Pages 部署同时进行
 concurrency:
-  group: pages
+  group: github-ai-pages
   cancel-in-progress: false
 
 jobs:
@@ -30,60 +36,145 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v7
 
+      # ============================================================
+      # 1. 获取仓库代码
+      # ============================================================
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ============================================================
+      # 2. 配置 Python
+      # ============================================================
       - name: Set up Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: pip
+          cache: "pip"
 
+      # ============================================================
+      # 3. 缓存 Hugging Face 翻译模型
+      #    避免每次重新下载
+      # ============================================================
       - name: Cache translation model
         uses: actions/cache@v4
         with:
           path: ~/.cache/huggingface
           key: hf-opus-mt-en-zh-v1
+          restore-keys: |
+            hf-opus-mt-en-zh-
 
+      # ============================================================
+      # 4. 安装 Python 依赖
+      # ============================================================
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      # ============================================================
+      # 5. 抓取 GitHub AI 项目
+      #    + 分类
+      #    + 中文翻译
+      #    + Star 数据
+      #    + README 核心图片
+      # ============================================================
       - name: Update GitHub projects
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TOKENIZERS_PARALLELISM: "false"
-        run: python scripts/update.py
+          PYTHONUNBUFFERED: "1"
+        run: |
+          python scripts/update.py
 
+      # ============================================================
+      # 6. 检查 Python 文件有没有语法错误
+      # ============================================================
       - name: Validate Python
-        run: python -m compileall -q scripts
+        run: |
+          python -m compileall -q scripts
 
+      # ============================================================
+      # 7. 把新生成的数据提交回仓库
+      #
+      #    这里特别处理：
+      #    如果 Action 运行期间你人工修改了仓库，
+      #    会先 pull --rebase，再 push，
+      #    避免 fetch first / non-fast-forward 错误。
+      # ============================================================
       - name: Commit refreshed data
         run: |
           git config user.name "ai-tools-radar-bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
           git add data/
-          if ! git diff --cached --quiet; then
+
+          if git diff --cached --quiet; then
+            echo "No data changes to commit."
+          else
             git commit -m "chore: refresh AI tools data"
-            git push
+
+            echo "Syncing latest remote main branch..."
+
+            # 最多尝试 3 次，进一步避免运行过程中远端再次变化
+            for attempt in 1 2 3
+            do
+              echo "Push attempt ${attempt}"
+
+              git fetch origin main
+              git rebase origin/main
+
+              if git push origin HEAD:main; then
+                echo "Data pushed successfully."
+                break
+              fi
+
+              if [ "$attempt" -eq 3 ]; then
+                echo "Failed to push after 3 attempts."
+                exit 1
+              fi
+
+              echo "Remote changed again. Retrying..."
+              sleep 5
+            done
           fi
 
+      # ============================================================
+      # 8. 准备 GitHub Pages 静态网站
+      # ============================================================
       - name: Prepare static site
         run: |
           rm -rf _site
           mkdir -p _site
-          cp index.html .nojekyll _site/
-          cp -R assets data _site/
 
+          cp index.html _site/
+          cp .nojekyll _site/
+
+          cp -R assets _site/
+          cp -R data _site/
+
+          echo "Static site prepared:"
+          find _site -maxdepth 2 -type f | sort | head -100
+
+      # ============================================================
+      # 9. 配置 GitHub Pages
+      # ============================================================
       - name: Configure Pages
         uses: actions/configure-pages@v5
 
+      # ============================================================
+      # 10. 上传网页
+      # ============================================================
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v4
+        uses: actions/upload-pages-artifact@v3
         with:
           path: "_site"
 
+      # ============================================================
+      # 11. 发布 GitHub Pages
+      # ============================================================
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
