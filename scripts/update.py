@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import json
-import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from categorizer import categorize
+from categorizer import categorize, technical_tags
+from covers import choose_readme_cover
 from github_api import GitHubAPI
 from scoring import growth_for_window, repo_score
 from translator import LocalTranslator
@@ -35,10 +35,13 @@ def dump_json(path: Path, data: Any) -> None:
 
 def normalize(repo: dict[str, Any], discovered_at: str) -> dict[str, Any]:
     license_obj = repo.get("license") or {}
+    owner_obj = repo.get("owner") or {}
     return {
         "repo": repo["full_name"],
-        "owner": repo["owner"]["login"],
+        "owner": owner_obj.get("login") or "",
+        "owner_avatar": owner_obj.get("avatar_url") or "",
         "name": repo["name"],
+        "default_branch": repo.get("default_branch") or "main",
         "url": repo["html_url"],
         "homepage": repo.get("homepage") or "",
         "description_en": repo.get("description") or "",
@@ -53,11 +56,48 @@ def normalize(repo: dict[str, Any], discovered_at: str) -> dict[str, Any]:
         "updated_at": repo["updated_at"],
         "pushed_at": repo["pushed_at"],
         "discovered_at": discovered_at,
-        "category": "其他 AI",
+        "category": "其他实用 AI",
+        "tech_tags": [],
+        "cover_image": "",
+        "cover_checked_at": "",
         "growth_24h": None,
         "growth_7d": None,
         "score": 0.0,
     }
+
+
+def should_retry_cover(item: dict[str, Any], now: datetime) -> bool:
+    if item.get("cover_image"):
+        return False
+    checked = item.get("cover_checked_at") or ""
+    if not checked:
+        return True
+    try:
+        ts = datetime.fromisoformat(checked.replace("Z", "+00:00"))
+        return now - ts >= timedelta(days=int(CONFIG.get("cover_retry_days", 7)))
+    except Exception:
+        return True
+
+
+def balance_categories(records: list[dict[str, Any]], limit: int, max_per_category: int) -> list[dict[str, Any]]:
+    # First pass keeps the page diverse; second pass fills any unused capacity by score.
+    selected: list[dict[str, Any]] = []
+    remaining: list[dict[str, Any]] = []
+    counts: dict[str, int] = {}
+    for item in records:
+        category = item.get("category") or "其他实用 AI"
+        if counts.get(category, 0) < max_per_category:
+            selected.append(item)
+            counts[category] = counts.get(category, 0) + 1
+        else:
+            remaining.append(item)
+        if len(selected) >= limit:
+            return selected[:limit]
+    for item in remaining:
+        if len(selected) >= limit:
+            break
+        selected.append(item)
+    return selected[:limit]
 
 
 def main() -> None:
@@ -71,13 +111,14 @@ def main() -> None:
     api = GitHubAPI()
     candidates: dict[str, dict[str, Any]] = {}
     queries = list(CONFIG["queries"])
-
-    since = (now - timedelta(days=int(CONFIG.get("new_repo_days", 45)))).date().isoformat()
+    since = (now - timedelta(days=int(CONFIG.get("new_repo_days", 60)))).date().isoformat()
     queries.extend(
         [
             f"topic:artificial-intelligence created:>{since} stars:>20",
             f"topic:llm created:>{since} stars:>20",
             f"topic:ai-agent created:>{since} stars:>20",
+            f"topic:generative-ai created:>{since} stars:>20",
+            f"topic:geospatial created:>{since} stars:>10",
         ]
     )
 
@@ -88,32 +129,33 @@ def main() -> None:
                 query,
                 sort="stars",
                 order="desc",
-                per_page=int(CONFIG.get("search_per_query", 30)),
+                per_page=int(CONFIG.get("search_per_query", 25)),
             )
-        except Exception as exc:  # keep partial results if one search fails
+        except Exception as exc:
             print(f"[warn] query failed: {query!r}: {exc}")
             continue
         for repo in repos:
             candidates[repo["full_name"].lower()] = repo
 
-    min_stars = int(CONFIG.get("min_stars", 30))
+    min_stars = int(CONFIG.get("min_stars", 20))
     records: list[dict[str, Any]] = []
     needs_translation: list[tuple[int, str]] = []
 
     for key, raw in candidates.items():
-        if raw.get("stargazers_count", 0) < min_stars:
-            continue
-        if raw.get("archived") or raw.get("fork"):
+        if raw.get("stargazers_count", 0) < min_stars or raw.get("archived") or raw.get("fork"):
             continue
 
         old = existing.get(key)
         discovered_at = old.get("discovered_at", now_iso) if old else now_iso
         item = normalize(raw, discovered_at)
-
-        if old and old.get("description_en") == item["description_en"]:
-            item["description_zh"] = old.get("description_zh", "")
+        if old:
+            if old.get("description_en") == item["description_en"]:
+                item["description_zh"] = old.get("description_zh", "")
+            item["cover_image"] = old.get("cover_image", "")
+            item["cover_checked_at"] = old.get("cover_checked_at", "")
 
         item["category"] = categorize(item["name"], item["description_en"], item["topics"])
+        item["tech_tags"] = technical_tags(item["name"], item["description_en"], item["topics"])
         records.append(item)
         if item["description_en"] and not item["description_zh"]:
             needs_translation.append((len(records) - 1, item["description_en"]))
@@ -129,7 +171,6 @@ def main() -> None:
         for (idx, _), zh in zip(needs_translation, translated):
             records[idx]["description_zh"] = zh
 
-    # Update snapshots and compute velocity. Keep 15 days to cap repository size.
     cutoff = now - timedelta(days=15)
     for item in records:
         key = item["repo"].lower()
@@ -142,21 +183,40 @@ def main() -> None:
                     cleaned.append(snap)
             except Exception:
                 pass
-
         cleaned.append({"ts": now_iso, "stars": item["stars"]})
         history[key] = cleaned[-800:]
-
         item["growth_24h"] = growth_for_window(cleaned, item["stars"], 24)
         item["growth_7d"] = growth_for_window(cleaned, item["stars"], 24 * 7)
         item["score"] = repo_score(item, item["growth_24h"], item["growth_7d"])
 
     records.sort(key=lambda x: (x["score"], x["stars"]), reverse=True)
-    records = records[: int(CONFIG.get("max_projects", 120))]
+    records = balance_categories(
+        records,
+        int(CONFIG.get("max_projects", 160)),
+        int(CONFIG.get("max_per_category", 16)),
+    )
 
-    # Keep history only for projects still tracked after pruning.
+    # Fetch one representative README image. Existing successful covers are cached in projects.json.
+    cover_fetches = 0
+    for item in records:
+        if not should_retry_cover(item, now):
+            continue
+        try:
+            readme = api.get_readme_text(item["owner"], item["name"])
+            item["cover_image"] = choose_readme_cover(
+                readme,
+                item["owner"],
+                item["name"],
+                item.get("default_branch") or "main",
+            )
+            item["cover_checked_at"] = now_iso
+            cover_fetches += 1
+        except Exception as exc:
+            print(f"[warn] cover lookup failed for {item['repo']}: {exc}")
+            item["cover_checked_at"] = now_iso
+
     active = {p["repo"].lower() for p in records}
     history = {key: value for key, value in history.items() if key in active}
-
     dump_json(PROJECTS_PATH, records)
     dump_json(HISTORY_PATH, history)
     dump_json(
@@ -165,11 +225,12 @@ def main() -> None:
             "last_updated": now_iso,
             "project_count": len(records),
             "translated_this_run": len(needs_translation),
+            "cover_fetches_this_run": cover_fetches,
             "query_count": len(queries),
             "translation_engine": CONFIG["translation_model"],
         },
     )
-    print(f"Updated {len(records)} projects at {now_iso}")
+    print(f"Updated {len(records)} projects at {now_iso}; cover lookups: {cover_fetches}")
 
 
 if __name__ == "__main__":
