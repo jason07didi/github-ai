@@ -3,16 +3,16 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="按实际用途自动发现 GitHub 上值得关注的 AI 开源工具，提供中文简介、核心图片、热度和 Star 增长趋势。">
-  <title>AI 开源工具雷达</title>
+  <meta name="description" content="自动发现 GitHub 上值得收藏的 AI 项目，提供中文简介、核心图片、用途分类、热度和 Star 增长趋势。">
+  <title>GitHub AI 项目库</title>
   <link rel="stylesheet" href="./assets/style.css">
 </head>
 <body>
   <header class="hero">
     <div class="wrap">
-      <div class="eyebrow">GitHub AI Tools Radar</div>
-      <h1>AI 开源工具雷达</h1>
-      <p class="subtitle">不按 Agent、MCP、RAG 这类技术术语分类，而是按“你想用 AI 做什么”来找工具：读论文、做 GIS、生成效果图、数据分析、做 PPT、数字人、视频、编程等。项目由 GitHub Actions 自动更新。</p>
+      <div class="eyebrow">GitHub AI Project Library</div>
+      <h1>GitHub AI 项目库</h1>
+      <p class="subtitle">发现值得收藏的 GitHub AI 项目。按“你想用 AI 做什么”分类：读论文、做 GIS、生成效果图、数据分析、做 PPT、数字人、视频、编程等，并自动跟踪项目热度与 Star 增长。</p>
       <div class="hero-stats">
         <span>已收录 <strong id="projectCount">0</strong> 个项目</span><span>·</span>
         <span>最近更新：<strong id="lastUpdated">等待首次更新</strong></span>
@@ -37,14 +37,14 @@
 
   <main class="wrap">
     <div class="section-head">
-      <h2>值得关注的 AI 工具</h2>
+      <h2>值得收藏的 AI 项目</h2>
       <p>当前显示 <strong id="visibleCount">0</strong> 个项目</p>
     </div>
     <section id="grid" class="grid"><div class="empty">等待自动抓取 GitHub 数据…</div></section>
   </main>
 
   <footer>
-    <div class="wrap">项目图片优先取自原项目 README 中的预览图或封面；若没有合适图片，则显示项目头像/用途图标。数据来源于 GitHub 公开仓库，项目版权与许可证归原作者所有。</div>
+    <div class="wrap">项目图片优先取自原项目 README 中的预览图或封面；若没有合适图片，则显示项目头像/用途图标。数据来源于 GitHub 公开仓库，项目版权与许可证归原作者所有。<br><strong>公众号：创艺喵</strong></div>
   </footer>
   <script src="./assets/app.js" defer></script>
 </body>
