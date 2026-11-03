@@ -1,8 +1,8 @@
 {
-  "last_updated": "2026-11-03T02:14:49Z",
+  "last_updated": "2026-11-03T10:01:14Z",
   "project_count": 160,
   "translated_this_run": 155,
-  "cover_fetches_this_run": 1,
+  "cover_fetches_this_run": 0,
   "query_count": 25,
   "translation_engine": "Helsinki-NLP/opus-mt-en-zh"
 }
